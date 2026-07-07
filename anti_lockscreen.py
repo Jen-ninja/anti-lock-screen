@@ -650,7 +650,21 @@ class AntiLockApp:
         self.root.attributes("-topmost", True)
 
     def _resize(self, w, h):
+        """切到 w×h：基于当前位置自适应选择展开方向，保证卡片完全在屏幕内。
+        靠近右/下边缘时改为向左/上展开（保持右/下边对齐），其余保持左/上对齐；
+        最后统一夹回屏幕内，避免负值或贴出屏幕。"""
         x, y = self.root.winfo_x(), self.root.winfo_y()
+        cw, ch = max(1, self.root.winfo_width()), max(1, self.root.winfo_height())
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        m = 8  # 离屏幕边缘的安全距离
+        # 向右/向下展开会超出屏幕时，改为右/下边缘对齐（向反方向展开）
+        if x + w > sw - m:
+            x = x + cw - w
+        if y + h > sh - m:
+            y = y + ch - h
+        # 夹到屏幕内，避免负值或越界
+        x = min(max(m, x), max(m, sw - w - m))
+        y = min(max(m, y), max(m, sh - h - m))
         self.root.geometry(f"{w}x{h}+{x}+{y}")
 
     # ---------- 模式 ----------
