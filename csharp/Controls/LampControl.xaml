@@ -1,0 +1,29 @@
+<UserControl x:Class="AntiLockScreen.Controls.LampControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="72" Height="72"
+             Background="Transparent"
+             UseLayoutRounding="True">
+    <!-- 矢量台灯：设计画布 200×200，Viewbox 缩放到 72×72，坐标 1:1 对应 Python make_lamp -->
+    <Viewbox Stretch="Uniform">
+        <Canvas Width="200" Height="200">
+            <!-- 光束（仅亮灯时显示） -->
+            <Polygon x:Name="Beam1" Points="60,68 140,68 196,190 4,190"/>
+            <Polygon x:Name="Beam2" Points="71,68 129,68 170,186 30,186"/>
+            <Polygon x:Name="Beam3" Points="84,68 116,68 144,178 56,178"/>
+            <!-- 灯罩 -->
+            <Polygon x:Name="Shade" Points="60,26 140,26 160,66 40,66"/>
+            <Polygon x:Name="ShadeHi" Points="62,28 90,28 100,64 46,64"/>
+            <Ellipse x:Name="Rim" Canvas.Left="41" Canvas.Top="62" Width="118" Height="11"/>
+            <Ellipse x:Name="Bulb" Canvas.Left="60" Canvas.Top="65" Width="80" Height="6"/>
+            <Ellipse x:Name="Joint" Canvas.Left="91" Canvas.Top="66" Width="18" Height="13"/>
+            <!-- 灯杆 -->
+            <Rectangle x:Name="Pole" Canvas.Left="95" Canvas.Top="75" Width="10" Height="67" RadiusX="5" RadiusY="5"/>
+            <Rectangle x:Name="PoleHi" Canvas.Left="95.6" Canvas.Top="76" Width="2.8" Height="64" RadiusX="2" RadiusY="2"/>
+            <!-- 底座 -->
+            <Rectangle x:Name="Base" Canvas.Left="67" Canvas.Top="154" Width="66" Height="12" RadiusX="8" RadiusY="8"/>
+            <Rectangle x:Name="BaseTop" Canvas.Left="73" Canvas.Top="155.5" Width="54" Height="3" RadiusX="4" RadiusY="4"/>
+            <Ellipse x:Name="BaseShadow" Canvas.Left="62" Canvas.Top="165" Width="76" Height="7"/>
+        </Canvas>
+    </Viewbox>
+</UserControl>

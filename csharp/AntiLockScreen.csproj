@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AntiLockScreen</AssemblyName>
+    <RootNamespace>AntiLockScreen</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Company>AntiLockScreen</Company>
+    <Product>防熄屏</Product>
+    <!-- 默认不裁剪（WPF 反射风险）；发布时可命令行覆盖开启试验 -->
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- app.ico 既是 exe 图标（ApplicationIcon），也作为嵌入资源供运行时加载（托盘/单文件发布后可靠） -->
+    <EmbeddedResource Include="app.ico" />
+  </ItemGroup>
+
+</Project>
