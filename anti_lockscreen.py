@@ -793,19 +793,23 @@ class AntiLockApp:
     def enter_mini(self, *_):
         self.full_card.pack_forget()
         self.mini_btn.pack()
-        self._resize(MINI_W, MINI_H)
         self._mini = True
         self._visible = True
+        self._apply_topmost()                       # 先确保台灯置顶
+        self.root.update_idletasks()
+        self._resize(MINI_W, MINI_H)                # 最后定位，避免后续切 topmost 被系统重定位
         self.update_mini_style()
-        self._apply_topmost()   # 迷你台灯始终悬浮
 
     def exit_mini(self, *_):
         self.mini_btn.pack_forget()
         self.full_card.pack(fill="both", expand=True)
-        self._resize(FULL_W, self.full_h)
         self._mini = False
         self._visible = True
-        self._apply_topmost()   # 还原完整卡片自身的置顶状态
+        self._apply_topmost()                       # 先切到目标置顶状态
+        self.root.update_idletasks()
+        self._resize(FULL_W, self.full_h)           # 最后定位，保证位置生效、不溢出
+        # 兜底：切换 topmost 后系统偶发重定位，延迟再夹紧一次，彻底防溢出
+        self.root.after(40, lambda: self._resize(FULL_W, self.full_h))
 
     def _work_area(self, x, y):
         """返回包含点 (x, y) 的显示器工作区 (left, top, right, bottom)。
