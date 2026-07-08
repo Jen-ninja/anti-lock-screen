@@ -19,6 +19,7 @@ import threading
 import ctypes
 from ctypes import wintypes
 import winsound
+import tkinter as tk
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -50,7 +51,7 @@ ENTRY_BORDER = "#dcdfe3"
 ENTRY_BG = "#f7f8fa"
 SW_TRACK = "#cbd5e1"
 
-FULL_W, FULL_H = 300, 488
+FULL_W, FULL_H = 300, 520
 MINI_W = MINI_H = 80
 
 MODE_LABELS = {"keyboard": "键盘", "mouse": "鼠标", "api": "API", "hybrid": "键盘+API"}
@@ -130,6 +131,23 @@ user32.UnregisterHotKey.restype = wintypes.BOOL
 user32.PeekMessageW.argtypes = (ctypes.POINTER(_Msg), wintypes.HWND,
                                 wintypes.UINT, wintypes.UINT, wintypes.UINT)
 user32.PeekMessageW.restype = wintypes.BOOL
+
+# 多显示器 / 工作区（排除任务栏），用于精确夹紧窗口位置
+MONITOR_DEFAULTTONEAREST = 0x00000002
+
+
+class _MonitorInfoEx(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD),
+                ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD),
+                ("szDevice", wintypes.WCHAR * 32)]
+
+
+user32.MonitorFromPoint.argtypes = (wintypes.POINT, wintypes.DWORD)
+user32.MonitorFromPoint.restype = wintypes.HANDLE
+user32.GetMonitorInfoW.argtypes = (wintypes.HANDLE, ctypes.POINTER(_MonitorInfoEx))
+user32.GetMonitorInfoW.restype = wintypes.BOOL
 
 
 def press_key(vk):
@@ -219,15 +237,28 @@ def make_icon(name, color):
         d.line([24, 32, 40, 32], fill=color, width=5)
         d.line([32, 24, 32, 40], fill=color, width=5)
     elif name == "minimize":
-        d.line([14, 40, 50, 40], fill=color, width=5)
+        # 下箭头落入托盘 = 最小化到托盘
+        d.line([32, 10, 32, 32], fill=color, width=4)
+        d.polygon([(22, 24), (42, 24), (32, 36)], fill=color)
+        d.line([12, 48, 52, 48], fill=color, width=4)
     elif name == "close":
-        d.line([16, 16, 48, 48], fill=color, width=5)
-        d.line([48, 16, 16, 48], fill=color, width=5)
+        d.line([18, 18, 46, 46], fill=color, width=5)
+        d.line([46, 18, 18, 46], fill=color, width=5)
     elif name == "shrink":
-        d.line([12, 32, 28, 32], fill=color, width=4)
-        d.polygon([(26, 26), (26, 38), (34, 32)], fill=color)
-        d.line([52, 32, 36, 32], fill=color, width=4)
-        d.polygon([(38, 26), (38, 38), (30, 32)], fill=color)
+        # 四向内收箭头 = 收缩为迷你台灯
+        w4 = 4
+        d.line([32, 12, 32, 24], fill=color, width=w4)
+        d.polygon([(25, 23), (39, 23), (32, 31)], fill=color)
+        d.line([32, 40, 32, 52], fill=color, width=w4)
+        d.polygon([(25, 41), (39, 41), (32, 33)], fill=color)
+        d.line([12, 32, 24, 32], fill=color, width=w4)
+        d.polygon([(23, 25), (23, 39), (31, 32)], fill=color)
+        d.line([40, 32, 52, 32], fill=color, width=w4)
+        d.polygon([(41, 25), (41, 39), (33, 32)], fill=color)
+    elif name == "pin":
+        # 图钉 = 置顶
+        d.ellipse([22, 10, 42, 30], fill=color)
+        d.polygon([(27, 26), (37, 26), (34, 54), (30, 54)], fill=color)
     return img
 
 
@@ -382,6 +413,99 @@ def _parse_hk(d, default_mods, default_vk, default_label):
     return default_mods, default_vk, default_label
 
 
+class ToolTip:
+    """鼠标悬停显示文字提示。
+    兼容 CTkButton：把 Enter/Leave 绑定到控件及其全部子控件，避免鼠标在按钮内部
+    画布上移动时误触发 Leave 导致提示闪烁/不出现。text 可为字符串或返回字符串的可调用对象。"""
+
+    def __init__(self, widget, text, show_delay=500, hide_grace=120):
+        self.widget = widget
+        self._text = text
+        self.show_delay = show_delay
+        self.hide_grace = hide_grace
+        self._show_id = None
+        self._hide_id = None
+        self._top = None
+        for seq, fn in (("<Enter>", self._on_enter), ("<Leave>", self._on_leave)):
+            self._bind_tree(widget, seq, fn)
+
+    def _bind_tree(self, w, seq, fn):
+        try:
+            w.bind(seq, fn, add="+")
+        except Exception:
+            pass
+        for c in w.winfo_children():
+            self._bind_tree(c, seq, fn)
+
+    def _on_enter(self, _=None):
+        self._cancel_hide()
+        if self._top is None and self._show_id is None:
+            self._show_id = self.widget.after(self.show_delay, self._show)
+
+    def _on_leave(self, _=None):
+        self._cancel_show()
+        if self._top is not None:
+            self._cancel_hide()
+            self._hide_id = self.widget.after(self.hide_grace, self._destroy)
+
+    def _cancel_show(self):
+        if self._show_id is not None:
+            try:
+                self.widget.after_cancel(self._show_id)
+            except Exception:
+                pass
+            self._show_id = None
+
+    def _cancel_hide(self):
+        if self._hide_id is not None:
+            try:
+                self.widget.after_cancel(self._hide_id)
+            except Exception:
+                pass
+            self._hide_id = None
+
+    def _show(self):
+        self._show_id = None
+        text = self._text() if callable(self._text) else self._text
+        if not text or self._top is not None:
+            return
+        try:
+            wx = self.widget.winfo_rootx()
+            wy = self.widget.winfo_rooty()
+            wh = self.widget.winfo_height()
+        except Exception:
+            return
+        top = tk.Toplevel(self.widget)
+        top.overrideredirect(True)
+        top.attributes("-topmost", True)
+        top.configure(bg=BORDER)                       # 1px 描边的底色
+        inner = tk.Frame(top, bg=CARD_BG)              # 白色内容区，与应用卡片一致
+        inner.pack(padx=1, pady=1)
+        tk.Label(inner, text=text, justify="left",
+                 bg=CARD_BG, fg=CHIP_ICON, bd=0,
+                 padx=8, pady=3, font=(FONT, 10)).pack()
+        top.attributes("-alpha", 0.9)                  # 虚影：整体半透明，淡化不突兀
+        top.update_idletasks()
+        tw, th = top.winfo_reqwidth(), top.winfo_reqheight()
+        sw, sh = top.winfo_screenwidth(), top.winfo_screenheight()
+        x, y = wx, wy + wh + 6
+        if x + tw > sw - 6:
+            x = sw - tw - 6
+        if y + th > sh - 6:
+            y = wy - th - 6
+        top.geometry(f"+{max(0, x)}+{max(0, y)}")
+        self._top = top
+
+    def _destroy(self):
+        self._hide_id = None
+        if self._top is not None:
+            try:
+                self._top.destroy()
+            except Exception:
+                pass
+            self._top = None
+
+
 # ================== 主界面 ==================
 class AntiLockApp:
     def __init__(self, root):
@@ -423,6 +547,8 @@ class AntiLockApp:
         self.cfg_autoon = bool(cfg.get("autoon", True))
         self.cfg_jitter = bool(cfg.get("jitter", True))
         self.cfg_notify = bool(cfg.get("notify", True))
+        # 完整卡片默认不置顶（像普通 Win10 窗口）；迷你台灯始终置顶。可由"图钉"按钮切换
+        self._topmost = bool(cfg.get("topmost", False))
         if isinstance(cfg.get("last_session"), (int, float)) and cfg["last_session"] > 0:
             self.last_session = cfg["last_session"]
         hks = cfg.get("hotkeys") or {}
@@ -440,6 +566,10 @@ class AntiLockApp:
         self._build_window()
         self._build_full_card()
         self._build_mini()
+        # 按实际内容测量完整卡片高度，避免固定高度造成内容裁剪或大块留白
+        self.root.update_idletasks()
+        self.full_h = max(FULL_H, self.full_card.winfo_reqheight() + 6)
+        self._place_full_initial()
         self.update_mini_style()
 
         self.hotkey = HotkeyListener()
@@ -460,12 +590,16 @@ class AntiLockApp:
     def _build_window(self):
         r = self.root
         r.overrideredirect(True)
-        r.attributes("-topmost", True)
         r.wm_attributes("-transparentcolor", TRANSPARENT)
         r.configure(fg_color=TRANSPARENT)
-        sw = r.winfo_screenwidth()
-        r.geometry(f"{FULL_W}x{FULL_H}+{sw - FULL_W - 20}+80")
+        r.attributes("-topmost", self._topmost)
         self._drag_off = (0, 0)
+
+    def _place_full_initial(self):
+        """按测得的完整卡片高度，把窗口放到主屏工作区右上角（避开任务栏）。"""
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        wl, wt, wr, wb = self._work_area(sw // 2, sh // 2)
+        self.root.geometry(f"{FULL_W}x{self.full_h}+{wr - FULL_W - 20}+{max(wt + 16, 60)}")
 
     def _build_full_card(self):
         self.full_card = ctk.CTkFrame(self.root, corner_radius=22, fg_color=CARD_BG,
@@ -475,22 +609,40 @@ class AntiLockApp:
 
         # 标题栏
         header = ctk.CTkFrame(card, fg_color="transparent")
-        header.pack(fill="x", padx=14, pady=(12, 2))
+        header.pack(fill="x", padx=14, pady=(12, 6))
         left = ctk.CTkFrame(header, fg_color="transparent")
         left.pack(side="left")
         ctk.CTkLabel(left, image=ctk_img(make_app_icon(64), (22, 22)), text="").pack(side="left")
         ctk.CTkLabel(left, text="防熄屏", font=(FONT, 14, "bold"),
                      text_color=TEXT).pack(side="left", padx=6)
-        ctk.CTkButton(header, image=ctk_img(make_icon("close", HEADER_ICON), (16, 16)),
-                      text="", width=30, height=30, corner_radius=8, fg_color="transparent",
-                      hover_color=HOVER_CLOSE, command=self._quit).pack(side="right")
-        ctk.CTkButton(header, image=ctk_img(make_icon("minimize", HEADER_ICON), (16, 16)),
-                      text="", width=30, height=30, corner_radius=8, fg_color="transparent",
-                      hover_color=HOVER_SOFT, command=self._hide_to_tray).pack(side="right")
-        ctk.CTkButton(header, image=ctk_img(make_icon("shrink", HEADER_ICON), (16, 16)),
-                      text="", width=30, height=30, corner_radius=8, fg_color="transparent",
-                      hover_color=HOVER_SOFT, command=self.enter_mini).pack(side="right")
-        for w in (header, left):
+        # 右上角窗口控制（小图标）：置顶 / 缩小为台灯 / 最小化到托盘 / 关闭
+        ctrl = ctk.CTkFrame(header, fg_color="transparent")
+        ctrl.pack(side="right")
+        b_close = ctk.CTkButton(ctrl, image=ctk_img(make_icon("close", HEADER_ICON), (16, 16)),
+                                text="", width=28, height=28, corner_radius=8, fg_color="transparent",
+                                hover_color=HOVER_CLOSE, command=self._quit)
+        b_close.pack(side="right", padx=(2, 0))
+        b_min = ctk.CTkButton(ctrl, image=ctk_img(make_icon("minimize", HEADER_ICON), (16, 16)),
+                              text="", width=28, height=28, corner_radius=8, fg_color="transparent",
+                              hover_color=HOVER_SOFT, command=self._hide_to_tray)
+        b_min.pack(side="right", padx=(2, 0))
+        b_shrink = ctk.CTkButton(ctrl, image=ctk_img(make_icon("shrink", HEADER_ICON), (16, 16)),
+                                 text="", width=28, height=28, corner_radius=8, fg_color="transparent",
+                                 hover_color=HOVER_SOFT, command=self.enter_mini)
+        b_shrink.pack(side="right", padx=(2, 0))
+        self.pin_btn = ctk.CTkButton(ctrl, text="", width=28, height=28, corner_radius=8,
+                                     fg_color="transparent", hover_color=HOVER_SOFT,
+                                     command=self.toggle_topmost)
+        self.pin_btn.pack(side="right", padx=(2, 0))
+        self._update_pin_style()
+        # 悬停文字提示
+        ToolTip(b_close, "关闭程序")
+        ToolTip(b_min, "最小化")
+        ToolTip(b_shrink, "台灯模式")
+        ToolTip(self.pin_btn, lambda: "取消置顶" if self._topmost else "置顶窗口")
+        # 标题栏分隔线
+        ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(fill="x", padx=14, pady=(0, 8))
+        for w in (header, left, ctrl):
             self._bind_drag(w)
 
         # 开关
@@ -572,19 +724,24 @@ class AntiLockApp:
         if self.cfg_notify:
             self.sw_notify.select()
 
-        # 状态
+        # 状态条
         st = ctk.CTkFrame(card, fg_color="transparent")
-        st.pack(fill="x", padx=20, pady=(4, 14))
+        st.pack(fill="x", padx=20, pady=(4, 6))
         self.dot = ctk.CTkFrame(st, width=10, height=10, corner_radius=5, fg_color=DOT_OFF)
         self.dot.pack(side="left")
         self.status_label = ctk.CTkLabel(st, text="已停止 · 等待开启", anchor="w",
                                          text_color=MUTED, font=(FONT, 11))
         self.status_label.pack(side="left", padx=8)
-        self.reset_btn = ctk.CTkButton(st, text="恢复默认", width=74, height=22,
-                                       corner_radius=6, fg_color="transparent", hover_color=HOVER_SOFT,
-                                       border_width=1, border_color=ENTRY_BORDER, text_color=MUTED,
-                                       font=(FONT, 10), command=self.reset_to_defaults)
-        self.reset_btn.pack(side="right")
+
+        # 恢复默认：独立置于卡片底部，描边 + 克制配色，强调"次要/谨慎"操作
+        footer = ctk.CTkFrame(card, fg_color="transparent")
+        footer.pack(fill="x", padx=16, pady=(0, 14))
+        self.reset_btn = ctk.CTkButton(footer, text="↺  恢复默认设置", height=32,
+                                       corner_radius=10, fg_color="transparent",
+                                       hover_color=HOVER_CLOSE, border_width=1,
+                                       border_color=ENTRY_BORDER, text_color=MUTED,
+                                       font=(FONT, 11), command=self.reset_to_defaults)
+        self.reset_btn.pack(fill="x")
 
         self._restyle_chips()
 
@@ -640,32 +797,67 @@ class AntiLockApp:
         self._mini = True
         self._visible = True
         self.update_mini_style()
+        self._apply_topmost()   # 迷你台灯始终悬浮
 
     def exit_mini(self, *_):
         self.mini_btn.pack_forget()
         self.full_card.pack(fill="both", expand=True)
-        self._resize(FULL_W, FULL_H)
+        self._resize(FULL_W, self.full_h)
         self._mini = False
         self._visible = True
-        self.root.attributes("-topmost", True)
+        self._apply_topmost()   # 还原完整卡片自身的置顶状态
+
+    def _work_area(self, x, y):
+        """返回包含点 (x, y) 的显示器工作区 (left, top, right, bottom)。
+        使用 Win32 多屏 API：正确处理多显示器，并排除任务栏区域；失败时回退到整屏。"""
+        try:
+            hmon = user32.MonitorFromPoint(wintypes.POINT(x, y), MONITOR_DEFAULTTONEAREST)
+            mi = _MonitorInfoEx()
+            mi.cbSize = ctypes.sizeof(mi)
+            if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+                r = mi.rcWork
+                return (r.left, r.top, r.right, r.bottom)
+        except Exception:
+            pass
+        return (0, 0, self.root.winfo_screenwidth(), self.root.winfo_screenheight())
 
     def _resize(self, w, h):
-        """切到 w×h：基于当前位置自适应选择展开方向，保证卡片完全在屏幕内。
-        靠近右/下边缘时改为向左/上展开（保持右/下边对齐），其余保持左/上对齐；
-        最后统一夹回屏幕内，避免负值或贴出屏幕。"""
+        """切到 w×h：以"当前所在显示器的工作区"为边界自适应选择展开方向并夹紧，
+        彻底避免贴边 / 跨屏 / 压住任务栏时展开后溢出屏幕。"""
         x, y = self.root.winfo_x(), self.root.winfo_y()
         cw, ch = max(1, self.root.winfo_width()), max(1, self.root.winfo_height())
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        m = 8  # 离屏幕边缘的安全距离
-        # 向右/向下展开会超出屏幕时，改为右/下边缘对齐（向反方向展开）
-        if x + w > sw - m:
+        left, top, right, bottom = self._work_area(x, y)
+        m = 8  # 离工作区边缘的安全距离
+        # 向右/向下展开会超出当前工作区时，改为右/下边缘对齐（向反方向展开）
+        if x + w > right - m:
             x = x + cw - w
-        if y + h > sh - m:
+        if y + h > bottom - m:
             y = y + ch - h
-        # 夹到屏幕内，避免负值或越界
-        x = min(max(m, x), max(m, sw - w - m))
-        y = min(max(m, y), max(m, sh - h - m))
+        # 夹到当前显示器工作区内，避免压到任务栏或越界到屏外
+        x = min(max(left + m, x), max(left + m, right - w - m))
+        y = min(max(top + m, y), max(top + m, bottom - h - m))
         self.root.geometry(f"{w}x{h}+{x}+{y}")
+
+    # ---------- 置顶 ----------
+    def _apply_topmost(self):
+        """迷你台灯始终悬浮；完整卡片遵循"置顶"开关（默认不置顶）。"""
+        self.root.attributes("-topmost", True if self._mini else self._topmost)
+
+    def toggle_topmost(self, *_):
+        self._topmost = not self._topmost
+        self._apply_topmost()
+        self._update_pin_style()
+        self._save_cfg()
+
+    def _update_pin_style(self):
+        if not hasattr(self, "pin_btn"):
+            return
+        if self._topmost:
+            self.pin_btn.configure(fg_color=ACCENT, hover_color=ACCENT_H,
+                                   image=ctk_img(make_icon("pin", "#ffffff"), (16, 16)))
+        else:
+            self.pin_btn.configure(fg_color="transparent", hover_color=HOVER_SOFT,
+                                   image=ctk_img(make_icon("pin", HEADER_ICON), (16, 16)))
 
     # ---------- 模式 ----------
     def _select_mode(self, mode):
@@ -818,6 +1010,7 @@ class AntiLockApp:
         self.cfg_autoon = True
         self.cfg_jitter = True
         self.cfg_notify = True
+        self._topmost = False
         self.last_session = None
         self.hk_show_mods, self.hk_show_vk, self.hk_show_label = MOD_CONTROL | MOD_ALT, 0x53, "Ctrl + Alt + S"
         self.hk_run_mods, self.hk_run_vk, self.hk_run_label = MOD_CONTROL | MOD_ALT, 0x44, "Ctrl + Alt + D"
@@ -826,6 +1019,8 @@ class AntiLockApp:
         self.hk_show_btn.configure(text=self.hk_show_label, fg_color=CHIP_FG, text_color=TEXT)
         self.hk_run_btn.configure(text=self.hk_run_label, fg_color=CHIP_FG, text_color=TEXT)
         self.sw_autoon.select(); self.sw_jitter.select(); self.sw_notify.select(); self.sw_autostart.deselect()
+        self._apply_topmost()
+        self._update_pin_style()
         self._restyle_chips()
         self.update_mini_style()
         self.hotkey.set_all(self._entries())     # 用默认热键重新注册
@@ -997,7 +1192,7 @@ class AntiLockApp:
     def _restore(self):
         self.root.deiconify()
         self.root.lift()
-        self.root.attributes("-topmost", True)
+        self._apply_topmost()
         self._visible = True
 
     # ---------- 配置持久化 / 退出 ----------
@@ -1005,6 +1200,7 @@ class AntiLockApp:
         save_cfg({
             "mode": self.cur_mode, "interval": self.cur_interval,
             "autoon": self.cfg_autoon, "jitter": self.cfg_jitter, "notify": self.cfg_notify,
+            "topmost": self._topmost,
             "last_session": self.last_session,
             "hotkeys": {
                 "show": {"mods": self.hk_show_mods, "vk": self.hk_show_vk, "label": self.hk_show_label},
